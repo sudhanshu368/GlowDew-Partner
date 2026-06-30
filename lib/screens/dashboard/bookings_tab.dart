@@ -1979,6 +1979,33 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
   final List<String> _paymentStatuses = ['Paid', 'Partial', 'Unpaid'];
   final List<String> _bookingStatuses = ['Pending', 'Confirmed', 'In Progress', 'Completed', 'Cancelled'];
 
+  DateTime _parseDate(String dateTimeStr) {
+    try {
+      final datePart = dateTimeStr.split(' • ')[0].trim();
+      final parts = datePart.split(',');
+      if (parts.length >= 2) {
+        final year = int.parse(parts[1].trim());
+        final monthDay = parts[0].trim().split(' ');
+        if (monthDay.length >= 2) {
+          final monthStr = monthDay[0].trim().toLowerCase();
+          final day = int.parse(monthDay[1].trim());
+          final months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+          int monthIndex = months.indexOf(monthStr.substring(0, 3));
+          if (monthIndex != -1) {
+            return DateTime(year, monthIndex + 1, day);
+          }
+        }
+      }
+      return DateTime.parse(datePart);
+    } catch (_) {
+      try {
+        return DateTime.parse(dateTimeStr);
+      } catch (_) {
+        return DateTime.now().add(const Duration(days: 1));
+      }
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1998,7 +2025,7 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
     // Parse date and time if editing
     if (b != null) {
       final dateTimeStr = b['dateTime'] as String; // e.g. "May 30, 2026 • 10:30 AM"
-      _selectedDate = DateTime(2026, 5, 30); // Mock default date
+      _selectedDate = _parseDate(dateTimeStr);
       
       // Attempt to extract timeslot
       final parts = dateTimeStr.split(' • ');
@@ -2054,6 +2081,7 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
     try {
       final dateStr = '${_selectedDate.year}-${_selectedDate.month.toString().padLeft(2, '0')}-${_selectedDate.day.toString().padLeft(2, '0')}';
       final res = await ApiService().getAvailableSlots(widget.salonId, dateStr);
+      if (!mounted) return;
       if (res['success'] == true) {
         final data = res['data'];
         List<dynamic> slotsList = [];
@@ -2095,6 +2123,7 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
         });
       }
     } catch (_) {
+      if (!mounted) return;
       setState(() {
         _dynamicSlots = List.from(_timeSlots); // fallback
         _isLoadingSlots = false;
@@ -2111,11 +2140,22 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
   }
 
   Future<void> _selectDate() async {
+    final now = DateTime.now();
+    DateTime firstDate = now.subtract(const Duration(days: 30));
+    DateTime lastDate = now.add(const Duration(days: 365));
+
+    if (_selectedDate.isBefore(firstDate)) {
+      firstDate = _selectedDate;
+    }
+    if (_selectedDate.isAfter(lastDate)) {
+      lastDate = _selectedDate;
+    }
+
     final picked = await showDatePicker(
       context: context,
       initialDate: _selectedDate,
-      firstDate: DateTime.now().subtract(const Duration(days: 30)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
+      firstDate: firstDate,
+      lastDate: lastDate,
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -2129,6 +2169,8 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
         );
       },
     );
+
+    if (!mounted) return;
 
     if (picked != null) {
       setState(() {
@@ -2144,6 +2186,7 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
   }
 
   void _handleSave() async {
+    if (_isSaving || _showSuccessAnimation) return;
     if (_formKey.currentState!.validate()) {
       setState(() {
         _isSaving = true;
@@ -2248,11 +2291,14 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
     final isMobile = mediaQuery.size.width < 700;
 
     if (_showSuccessAnimation) {
-      return Container(
-        height: 380,
-        alignment: Alignment.center,
-        color: Colors.white,
-        child: const AnimatedCheckmark(),
+      return PopScope(
+        canPop: false,
+        child: Container(
+          height: 380,
+          alignment: Alignment.center,
+          color: Colors.white,
+          child: const AnimatedCheckmark(),
+        ),
       );
     }
 
@@ -2295,7 +2341,7 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
               ),
               IconButton(
                 icon: const Icon(Icons.close_rounded, color: Colors.white),
-                onPressed: () => Navigator.pop(context),
+                onPressed: _isSaving ? null : () => Navigator.pop(context),
               ),
             ],
           ),
@@ -2499,22 +2545,25 @@ class _AddEditBookingFormState extends State<AddEditBookingForm> {
       ),
     );
 
-    return ClipRRect(
-      borderRadius: isMobile 
-          ? const BorderRadius.vertical(top: Radius.circular(24)) 
-          : BorderRadius.circular(24),
-      child: Scaffold(
-        backgroundColor: Colors.white,
-        body: Column(
-          children: [
-            header,
-            Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
-                child: formContent,
+    return PopScope(
+      canPop: !_isSaving,
+      child: ClipRRect(
+        borderRadius: isMobile 
+            ? const BorderRadius.vertical(top: Radius.circular(24)) 
+            : BorderRadius.circular(24),
+        child: Scaffold(
+          backgroundColor: Colors.white,
+          body: Column(
+            children: [
+              header,
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(bottom: mediaQuery.viewInsets.bottom),
+                  child: formContent,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
